@@ -164,8 +164,8 @@ https://github.com/mourner/simpleheat
 				<pre id='log'></pre>
 							
 				
-				<label>Radius </label><input type="range" id="radius" value="40" min="30" max="80" /><br />
-				<label>Blur </label><input type="range" id="blur" value="35" min="30" max="80" />
+				<label>Radius </label><input type="range" id="radius" value="40" min="0" max="180" /><br />
+				<label>Blur </label><input type="range" id="blur" value="35" min="0" max="80" />
 				<BR>
 				<input type="image" src="img/rotate_right.png" style="width:40px;" alt="rotate right" onclick="rotate_right();" />
 				<input type="image" src="img/rotate_left.png" style="width:40px;" alt="rotate left" onclick="rotate_left();" />
@@ -521,11 +521,11 @@ https://github.com/mourner/simpleheat
 						}
 						if (VFlip == 1){
 							b0 = b;
-							b = columns - b0;
+							b = columns - b0 -1;
 						}
 						if (HFlip == 1){
 							a0 = a;
-							a = rows - a0;
+							a = rows - a0 -1;
 						}
 						data.push([x[a+1],y[b+1], newArr[(i*columns) + j]/220]);	// "/250" due to max of display is not 255
 						COProw += (x[a+1]*newArr[(i*columns) + j]);
