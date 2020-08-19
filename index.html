@@ -7,29 +7,26 @@ https://github.com/mourner/simpleheat
 <title>SmartMat on web</title>
 <meta charset="utf-8">
 <style>
-	pre {
-	  overflow: auto;
-	  word-wrap: normal;
-	  white-space: pre;
-	  height: 80px;
-	}    
-	#statusImg {
-		border: none;
-		background: none;
+	#BLEinfo {
 		position: absolute;
-		top: 50%;
-		left: 50%;
-		z-index: 1;
-		transform: translate(-50%,-50%);
-		-webkit-transform: translate(-50%,-50%);
-		-moz-transform: translate(-50%,-50%);
-		-ms-transform: translate(-50%,-50%);
-	}          
-	#canvas-container { width: 100%; height: 800px;}
-	#Game-container {
-        display: inline-block;
-        position: relative;
-      } 
+		top: 0px;
+		right : 0px; 
+		background:rgba(255,255,255,0.3);
+		display:none;
+		border-style:dashed;
+		border-width:1px;
+		border-color: gray;
+		padding:5px;
+		-webkit-line-clamp: 3;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+		word-wrap: normal;
+		white-space: pre;
+		width: 240px;
+		height: 100px;
+		 z-index:1;
+	}	     
+	#canvas-container { width: 100%; height: 400px;}
 </style>
 <link rel="stylesheet" href="css/bootstrap.min.css">
 <link rel="stylesheet" href="css/switchButton.css">
@@ -38,45 +35,66 @@ https://github.com/mourner/simpleheat
 <script src="js/jquery-3.5.1.min.js"></script>
 <script src="js/cmGauge.js"></script>
 <script type="text/javascript">
-	var gameON = 0;
-	var gamePause = 1;
-	var COPpaddleX = 0;
 	var Psum = 0;
 	var PsumLast = 0;
 	var leaveSeatTimer = 0;
-	var connected = false;
-</script>	
-<script type="text/javascript">
+	var COPpaddleX = 0;
 	var arr;
 	var startTime;
+	var recTime = Date.parse(new Date());
 	var sitTimeCNT;
 	var leaveTimeCNT;
 	var stillTimeCNT;
 	var UpTimeCNT;
+	// for COP 
+	var COP_L_TCNT = COP_R_TCNT = 50;
+	var COP_avg = 0;
+	var COP_L_ToldCNT = COP_R_ToldCNT = '1,1,1,1,1,1,1';
+	var COP_oldavg = '0,0,0,0,0,0,0';
+	var sitTime_old = '0,0,0,0,0,0,0';
+	var COP_L_T_list = [50,50,50,50,50,50,50];
+	var COP_R_T_list = [50,50,50,50,50,50,50];
+	var COP_avg_list = [0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+	sitTime_list = new Array(7);
 	
 	function checkCookie()
 	{
 		arr=accessCookie("sitData");
+		//console.log(diffDays )
 		startTime = arr[0];
 		sitTimeCNT = arr[1];
 		stillTimeCNT = arr[2];
 		UpTimeCNT = arr[3];
 		leaveTimeCNT = arr[4];
-		if (startTime=="" || startTime==null){
+		if (arr[12]){
+			recTime = arr[5];
+			COP_L_TCNT = arr[6]; COP_R_TCNT = arr[7]; COP_avg = arr[8];
+			COP_L_ToldCNT =  arr[9]; COP_R_ToldCNT = arr[10]; COP_oldavg = arr[11]; sitTime_old = arr[12];
+		}
+		if (startTime=="" || startTime==null){	// no cookie data
 			sitTimeCNT = leaveTimeCNT = 0;
 			stillTimeCNT = 0;
 			UpTimeCNT = 0;
 			startTime = Date.parse(new Date());//console.log(1);
 		}
+		//將 存的舊資料string轉成 int array
+		COP_L_T_list = COP_L_ToldCNT.split(",").map(function(item) {return parseInt(item, 10);});
+		COP_R_T_list = COP_R_ToldCNT.split(",").map(function(item) {return parseInt(item, 10);});
+		COP_avg_list = COP_oldavg.match(/\d+(?:\.\d+)?/g).map(Number);
+		sitTime_list = sitTime_old.split(",").map(function(item) {return parseInt(item, 10);});
 	}
-	function createCookie(startTime,sitTime, leaveTimeCNT, stillTime, UpTime)
+	function updateCookie()
 	{
 		var date = new Date();
 		var daysToExpire = 30;
-		arr = [startTime, sitTime, stillTime, UpTime, leaveTimeCNT];
+		arr = [startTime, sitTimeCNT, stillTimeCNT, UpTimeCNT, leaveTimeCNT, recTime,
+				COP_L_TCNT, COP_R_TCNT, COP_avg,	// today (number)
+				COP_L_ToldCNT, COP_R_ToldCNT, COP_oldavg, sitTime_old		// previous days (string)
+		];
 		var json_str = JSON.stringify(arr);
 		date.setTime(date.getTime()+(daysToExpire*24*60*60*1000));
 		document.cookie = "sitData =" + json_str+ ";expires=" + date.toGMTString();
+		//console.log(json_str);
 	}
 	function accessCookie(c_name)
 	{
@@ -97,14 +115,23 @@ https://github.com/mourner/simpleheat
 	/*********************************************************************************/
 	setInterval(() => {
 		if(connected){
-			createCookie(startTime,sitTimeCNT, leaveTimeCNT, stillTimeCNT, UpTimeCNT);
+			// 狀態計數
 			if (Psum>1000){ // when sitting
 				sitTimeCNT += 1;
-				$('#gaugeDemo .gauge-arrow').trigger('updateGauge', COPpaddleX/5);
+				$('#gaugeDemo .gauge-arrow').trigger('updateGauge', COPpaddleX);
 				$('#gaugeDemo .gauge-arrow').cmGauge();
 				leaveSeatTimer = 0;
 				if(Math.abs(PsumLast - Psum)<70)	// 壓力變化小=>靜止
 					stillTimeCNT += 1;	
+				//計算COP平均值
+				//COP_avg = ((COP_avg*(COP_L_TCNT+COP_R_TCNT) + COPpaddleX) / (COP_L_TCNT+COP_R_TCNT+1)).toFixed(2);
+				//counter歸零時有預設COP_L/R_TCNT都有值(50/50)時
+				COP_avg = ((COP_avg*(COP_L_TCNT+COP_R_TCNT-100) + COPpaddleX) / (COP_L_TCNT+COP_R_TCNT-100+1)).toFixed(2);
+				//console.log(COP_avg);
+				if (COPpaddleX < 50)	
+					COP_L_TCNT ++;
+				else
+					COP_R_TCNT ++;
 			}
 			else{	// when leaving
 				//console.log(PsumLast - Psum);
@@ -114,11 +141,82 @@ https://github.com/mourner/simpleheat
 				if(leaveSeatTimer == 5)	//leave the seat(>5s)
 					UpTimeCNT += 1;
 			}
+			
+			// 檢查是否新的一天
+			var date2 = Date.parse(new Date());
+			var diffDays = parseInt((date2 - recTime) / (1000 * 60 * 60 * 24), 10); //1000 *分 * 時 * 日
+			//var diffDays = parseInt((date2 - recTime) / (1000 * 60), 10); 
+			
+			//新的一天 ******************
+			if (diffDays > 0){ 
+				COP_L_T_list.shift();
+				COP_R_T_list.shift();
+				COP_avg_list.shift();
+				sitTime_list.shift();
+				
+				recTime = date2;
+				// counter歸零
+				COP_L_TCNT = 50;
+				COP_R_TCNT = 50;
+				COP_avg = 50;
+				sitTimeCNT = stillTimeCNT = leaveTimeCNT = UpTimeCNT = 0;
+				
+			}			
+			
+			
+			var Chart1_data = [sitTimeCNT,leaveTimeCNT];
+			PChart1.data.datasets.forEach(function(dataset) {
+				dataset.data= Chart1_data;
+			});
+			PChart1.update();
+			
+			var Chart2_data = [stillTimeCNT,sitTimeCNT-stillTimeCNT];
+			PChart2.data.datasets.forEach(function(dataset) {
+				dataset.data= Chart2_data;
+			});
+			PChart2.update();
+			
+			/****************/
+			
+			// 更新即時數據
+			COP_L_T_list[6] = (COP_L_TCNT / (COP_R_TCNT + COP_L_TCNT)  * 100).toFixed(0);
+			COP_R_T_list[6] = (COP_R_TCNT / (COP_R_TCNT + COP_L_TCNT)  * 100).toFixed(0);
+			COP_avg_list[6] = ((50-COP_avg)*0.15).toFixed(1);
+			sitTime_list[6] = sitTimeCNT;
+			console.log(COP_avg_list[6]);
+			
+			COP_L_ToldCNT = COP_L_T_list.toString();
+			COP_R_ToldCNT = COP_R_T_list.toString();
+			COP_oldavg = COP_avg_list.toString();
+			sitTime_old = sitTime_list.toString();
+			
+			// 寫入 cookie
+			updateCookie();
+			/*************/
+			
+			// 左右重心統計 3 plots
+			PChart3.data.datasets[0].data = COP_avg_list;
+			PChart3.data.datasets[1].data = COP_L_T_list;
+			PChart3.data.datasets[2].data = COP_R_T_list.map(value => -value);
+			PChart3.update();			
+			
+			//重心偏移pie
+			var Chart5_data = [COP_R_TCNT, COP_L_TCNT];
+			PChart5.data.datasets.forEach(function(dataset) {
+				dataset.data= Chart5_data;
+			});
+			PChart5.update();
+			
+			//一周久坐圖
+			PChart4.data.datasets[0].data= sitTime_list.map(value => (value/60).toFixed(1));
+			//PChart4.data.datasets[0].data= sitTime_list.map(value => (value*60).toFixed(1));
+			PChart4.update();
+			
 			document.getElementById('Stillness_time').textContent=(stillTimeCNT/60).toFixed(1);	
 			document.getElementById('Up_times').textContent=UpTimeCNT;	
 			PsumLast = Psum;
 		}
-	}, 1000);
+	}, 1000);	//每1000毫秒更新一次
 	
 	function setCookie(name, value, expirydays) {
 		var d = new Date();
@@ -132,253 +230,178 @@ https://github.com/mourner/simpleheat
 		checkCookie();		
 	}
 	checkCookie();
-	checkCookie();
-
 </script>
 <script src="js/Chart.min.js"></script>
+<script src="js/chartjs-plugin-datalabels0.7.0.js"></script>
 </head>
-<body onload='_update()'>
-	<ul class="nav nav-tabs">
-	  <li role="presentation" class="active"><a href="#" onclick="openTab('Home')">Home</a></li>
-	  <li role="presentation"><a href="#" onclick="openTab('Analysis')">Analysis</a></li>
-	  <li role="presentation"><a href="#" onclick="openTab('Game-container')">Ping-Pong Game</a></li>
-	</ul>
-	
-<div id="Home" class="w3-container tab">
+<body onload='_update()'>	
 	<div class="container">
 		<div class="page-header">
-			<h2>SmartMat Realtime Measurement</h2>
-		</div>
-		<div class="row">
-			<div class="col-sm-3">
-				<b>Matrix Size: </b>
-				<select id= "XYList"  onchange="setXY();">
-					<option value=0> </option>
-					<option value=1> 12 x 18 </option>
-					<option value=2> 9 x 9 </option>
-				</select>
-				<br><br>
-				<button id='connect' type="button" class="btn btn-block">Connect</button>
-				
-				<h4>Log:</h4>
-				<pre id='log'></pre>
-							
-				
-				<label>Radius </label><input type="range" id="radius" value="40" min="0" max="180" /><br />
-				<label>Blur </label><input type="range" id="blur" value="35" min="0" max="80" />
-				<BR>
-				<input type="image" src="img/rotate_right.png" style="width:40px;" alt="rotate right" onclick="rotate_right();" />
-				<input type="image" src="img/rotate_left.png" style="width:40px;" alt="rotate left" onclick="rotate_left();" />
-				<input type="image" src="img/V-flip.png" style="width:40px;" alt="rotate left" onclick="V_flip();" />
-				<input type="image" src="img/H-flip.png" style="width:40px;" alt="rotate left" onclick="H_flip();" />
-				<BR>
-				<li class="list-group-item">
-					Display COP
-					<div class="material-switch pull-right">
-						<input id="someSwitchOptionInfo" name="someSwitchOption001" type="checkbox" onclick="COPshown()"/>
-						<label for="someSwitchOptionInfo" class="label-info"></label>
+			<h1><B>SmartMat HealthCare System</B></h1>
+				<h4>
+					<p class="text-right"><b>Mat Size: </b>
+					<select id= "XYList"  onchange="setXY();">
+						<option value=0> </option>
+						<option value=1> 12 x 12 </option>
+						<option value=2> 9 x 9 </option>
+					</select>
+					<button id='connect' type="button" >Connect</button></p>
+				</h4>
+				<div style="position: relative;">
+					<div  class='BLEinfo' ID='BLEinfo'>
 					</div>
-				</li>
-				
-			</div>
-			<div class="col-sm-9">
-				<h4 style="text-align: center">SmartMat Pressure Mapping</h4>
-			
-				<div id="canvas-container" style="text-align: center" >
-					<div id='hint'></div>
-					<canvas id="canvas"  style="border: 1px solid #eee; margin: 0; padding: 0; margin-right: auto;
-		margin-left: auto;		display: block;		width: 600px; ">
-					Sorry. your browser not support canvas.
-					</canvas>
 				</div>
-			</div>
-
-		</div>
-	</div>
-</div>	
-
-<div id="Analysis" class="w3-container tab" style="text-align: center ;font-family: '微軟正黑體';" >
-	<div class="container">
-		<div class="page-header">
-			<h2>Analysis Dashboard</h2>
-		</div>    
-	<article class="wrapper" style="width:95%; text-align: center; position: relative;">	    	    
-	    <section class="main">	        
-	        <section class="tab-content">	            
-	           <section class="tab-pane active fade in content" id="dashboard">	               
-	                <div class="row">	                   
-                        <div class="col-xs-6 col-sm-4">
-	                        <div class="panel panel-primary">
-	                            <div class="panel-body">
-	                                <h4>坐姿左右重心</h4>
-									<p id="COP_side"></p>
-									
-									<div id="gaugeDemo" class="gauge gauge-small gauge-green">
-										<div class="gauge-arrow" data-percentage="80"
-											 style="transform: rotate(0deg);"></div>
-									</div>
-	                            </div>
-	                        </div>
-	                    </div>
-	                    
-	                    <div class="col-xs-6 col-sm-4">
-	                        <div class="panel panel-success">
-	                            <div class="panel-body">
-	                                <h4>坐著不動 <small>累記時間(分鐘)</small></h4>
-									<p id="Stillness_time"  style="font-size:30px;line-height:47px;font-weight:600">-</p>
-	                            </div>
-	                        </div>
-	                    </div>
-	                    
-	                    <div class="col-xs-6 col-sm-4">
-	                        <div class="panel panel-danger">
-	                            <div class="panel-body">
-	                                <h4>起身 <small>累記次數</small></h4>
-									<p id="Up_times"  style="font-size:30px;line-height:47px;font-weight:600">-</p>									
-	                            </div>
-	                        </div>
-	                    </div>
-	                    
-	                   
-	                   <div class="col-xs-12 col-sm-6">
-	                       <div class="panel panel-default">
-	                           <div class="panel-heading" style="font-size:1.5em;">
-	                               <b>久坐累計時間</b>
-	                           </div>
-								<div class="panel-body">
-									<div id="clockdiv">
-										<div><span class="days"></span><div class="smalltext">Days</div></div>
-										<div><span class="hours"></span><div class="smalltext">Hours</div></div>
-										<div><span class="minutes"></span><div class="smalltext">Minutes</div></div>
-										<div><span class="seconds"></span><div class="smalltext">Seconds</div></div>
-									</div>
-									<script  src="js/Timer.js"></script>
-									   
+				<div id='hint'></div>
+				
+		</div>		
+								
+		<article class="wrapper" style="width:95%; text-align: center; position: relative;">
+			<div class="row">
+				<div class="col-xs-6 col-sm-4">
+					<div class="panel panel-primary">
+						<div class="panel-body">
+							<h3>坐姿左右重心</h3>
+							<p id="COP_side"></p>
+							
+							<div id="gaugeDemo" class="gauge gauge-small gauge-green">
+								<div class="gauge-arrow" data-percentage="80"
+									 style="transform: rotate(0deg);"></div>
+							</div>
+						</div>
+					</div>
+				</div>
+				
+				<div class="col-xs-6 col-sm-4">
+					<div class="panel panel-success">
+						<div class="panel-body">
+							<h3>坐著不動 <small>累記時間(分鐘)</small></h3>
+							<p id="Stillness_time"  style="font-size:30px;line-height:47px;font-weight:600">-</p>
+						</div>
+					</div>
+				</div>
+				
+				<div class="col-xs-6 col-sm-4">
+					<div class="panel panel-danger">
+						<div class="panel-body">
+							<h3>起身 <small>累記次數</small></h3>
+							<p id="Up_times"  style="font-size:30px;line-height:47px;font-weight:600">-</p>									
+						</div>
+					</div>
+				</div>
+				
+			 <div class="row">
+			   <div class="col-xs-12 col-sm-6">
+				   <div class="panel panel-default">
+					   <div class="panel-heading" style="font-size:2.0em;background-image:none;background: #a4c6ff;">
+						   <b>壓力即時圖像</b>
+					   </div>
+						<div class="panel-body" style="font-size:1.5em;">
+						
+							<div id="canvas-container" style="text-align: center" >
+								<canvas id="canvas"  style="border: 1px solid #eee; margin: 0; padding: 0; margin-right: auto;
+									margin-left: auto;		display: block;		width: 400px; ">
+								Sorry. your browser not support canvas.
+								</canvas>
+							</div>
+							<BR>
+							<div class="row">
+							   <div class="col-xs-12 col-sm-6">
+									<label>Radius </label><input type="range" id="radius" value="40" min="0" max="180" />
+								</div>	
+							   <div class="col-xs-12 col-sm-6">	
+									<input type="image" src="img/rotate_right.png" style="width:40px;" alt="rotate right" onclick="rotate_right();" />
+									<input type="image" src="img/rotate_left.png" style="width:40px;" alt="rotate left" onclick="rotate_left();" />
+									<input type="image" src="img/V-flip.png" style="width:40px;" alt="rotate left" onclick="V_flip();" />
+									<input type="image" src="img/H-flip.png" style="width:40px;" alt="rotate left" onclick="H_flip();" />
+								</div>	
+							</div>
+							<div class="row">
+							   <div class="col-xs-12 col-sm-6">
+									<label>Blur </label><input type="range" id="blur" value="35" min="0" max="80" />
 								</div>
-	                       </div>
-	                       <div class="panel panel-default">
-	                           <div class="panel-heading">
-	                               <B>紀錄開始日期</B>
-	                           </div>
-	                           <div class="panel-body" id="beginDate"></div>
-								<button class="btn btn-primary"  onclick="deleteCookie('sitData');">重新開始</button>
-	                       </div>
-	                   </div>
-	                   
-	                   <div class="col-xs-12 col-sm-6">
-	                       <div class="panel panel-default" style="font-size:1.5em;">
-	                           <div class="panel-heading">
-	                               <B>分析圖表</B>
-	                           </div>
-	                           <div class="panel-body">
-									座位上時間分析
-									<canvas id="PieChart1" width="400" height="200"  style="border: 1px solid #eee; margin: 0; "></canvas>
-									<BR>
-									坐姿活動分析
-									<canvas id="PieChart2" width="400" height="200"  style="border: 1px solid #eee; margin: 0; "></canvas>
-									    
-							   </div>
-	                       </div>
-	                       
-	                   </div>	                   
-	               </div>	               
-	           </section>   
-	        </section>
-	    </section>  
-	</article>
-	</div>	
-</div>	
-<div id="Game-container" class="w3-container tab" style="text-align: center" >
-
-    <div id="statusImg">
-		<input type="image" id="startBtn" src="img/play.png"  style="width:140px;" onclick="draw2(1)">
-		<img id="pauseImg" src="img/pause.png" style="width:70px; display:none">	
+							   <div class="col-xs-12 col-sm-6">	
+									<li class="list-group-item" style="text-align: left;">
+										Display COP
+										<div class="material-switch pull-right">
+											<input id="showCOP" name="COPOption" type="checkbox" onclick="COPshown()"/>
+											<label for="showCOP" class="label-info"></label>
+										</div>
+									</li>
+								</div>
+							</div>	
+						</div>
+				   </div>
+				   <div class="panel panel-default">
+					   <div class="panel-heading" style="font-size:2.0em;">
+						   <b>今日久坐時間</b>
+					   </div>
+						<div class="panel-body">
+							<div id="clockdiv">
+								<div><span class="hours"></span><div class="smalltext">Hours</div></div>
+								<div><span class="minutes"></span><div class="smalltext">Minutes</div></div>
+								<div><span class="seconds"></span><div class="smalltext">Seconds</div></div>
+							</div>
+							<script  src="js/Timer.js"></script>
+							   
+						</div>
+				   </div>
+				   <div class="panel panel-default">
+					   <div class="panel-heading" style="font-size:1.5em;">
+						   紀錄開始日期
+					   </div>
+					   <h4><div class="panel-body" id="beginDate"></div></h4>
+						<button class="btn btn-primary"  onclick="deleteCookie('sitData');">重新開始</button>
+				   </div>
+			   </div>
+			   
+			   <div class="col-xs-12 col-sm-6">
+				   <div class="panel panel-default">
+					   <div class="panel-heading" style="font-size:2.0em;background-image:none;background: #73A340;">
+						   <B>今日活動分析</B>
+					   </div>
+					   <div class="panel-body">
+							<h3>座位上時間分析</h3>
+							<canvas id="PieChart1" width="400" height="200"  style="border: 1px solid #eee; margin: 0; "></canvas>
+							<BR>
+							<h3>坐姿活動分析</h3>
+							<canvas id="PieChart2" width="400" height="200"  style="border: 1px solid #eee; margin: 0; "></canvas>
+							<BR>
+							<h3>重心偏移分析</h3>
+							<canvas id="PieChart5" width="400" height="200"  style="border: 1px solid #eee; margin: 0; "></canvas>
+								
+					   </div>
+				   </div>
+				   
+			   </div>
+			</div>
+			<div class="row">	
+				<div class="col-md-10 col-md-offset-1">
+				   <div class="panel panel-default" style="font-size:2.0em;">
+					   <div class="panel-heading" style="background-image:none;background: #9D8ADB;">
+						   <B>一周坐姿分析</B>
+					   </div>
+					   <div class="panel-body">
+							左右重心統計
+							<canvas id="BarChart1" width="400" height="200"  style="border: 1px solid #eee; margin: 0; "></canvas>
+							<BR>
+							久坐時間統計
+							<canvas id="AreaChart1" width="400" height="200"  style="border: 1px solid #eee; margin: 0; "></canvas>
+								
+					   </div>
+				   </div>
+				</div>			   
+		   </div>	
+		</article>
 	</div>
 	
-	<canvas id="canvas2" width="480" height="320"  style="border: 1px solid #eee; margin: 0; "></canvas> 
-
-    <script  src="js/Ping-Pong.js"></script>
-	<br><input type="image"  src="img/restart-button.png" style="width:100px;" onclick="init()">	
-</div>
 <script type="text/javascript">
 	var rows = 18;
 	var columns = 12;
 	var theMatXY = 0;
 	var XYspacer = 50;
 	var showCOP = 0;	
-	var pauseImg = document.getElementById('pauseImg');
+	var timer;
 	
-	//https://stackoverflow.com/questions/39584694/how-to-hide-a-main-page-div-when-clicking-on-another-tab
-	openTab("Home")
-	function openTab(tabName) 
-	{
-		var i1;
-		var x1 = document.getElementsByClassName("tab");
-		for (i1 = 0; i1 < x1.length; i1++) 
-		{
-			x1[i1].style.display = "none";
-		}
-		document.getElementById(tabName).style.display = "block";
-		if (tabName!='Game-container') gamePause = 1;		
-		if (tabName =='Analysis') {
-			var d = new Date(startTime);
-			document.getElementById('beginDate').textContent=d.toLocaleString();
-			if(connected){
-				var Chart1_data = [sitTimeCNT,leaveTimeCNT];
-				//var Chart1_label = ['座位上','不在座位上'];
-				//loadPieChart('PieChart1', Chart1_data, Chart1_label);
-				//updatePieChart(PChart1, Chart1_data);
-				PChart1.data.datasets.forEach(function(dataset) {
-					dataset.data= Chart1_data;
-				});
-				PChart1.update();
-				
-				var Chart2_data = [stillTimeCNT,sitTimeCNT-stillTimeCNT];
-				//var Chart2_label = ['專注靜止','動態活動'];
-				//loadPieChart('PieChart2', Chart2_data, Chart2_label);
-				//updatePieChart(PChart2, Chart2_data);
-				PChart2.data.datasets.forEach(function(dataset) {
-					dataset.data= Chart2_data;
-				});
-				PChart2.update();
-			}
-		}
-	}
-	
-	function log(v)
-	{
-		var line = Array.prototype.slice.call(arguments).map(function(argument) {
-			return typeof argument === 'string' ? argument : JSON.stringify(argument);
-		}).join(' ');
-
-		document.querySelector('#log').textContent += line + '\n';
-		console.log(line);
-	}
-	function COPshown() {
-		showCOP = showCOP? 0:1;
-	}
-	function setXY(){
-		theMatXY = document.getElementById("XYList").value;
-		if (theMatXY > 0){
-			//theMatXY = list.options[index].value;
-			if (theMatXY == 1){
-				rows = 12;
-				columns = 18;
-				XYspacer = 30;
-			}
-			else if (theMatXY == 2){
-				rows = 9;
-				columns = 9;
-				XYspacer = 50;
-			}
-			document.querySelector('#connect').classList.remove("disabled");
-		}
-		else{
-			alert("please select one setting!");
-			document.querySelector('#connect').classList.add("disabled");
-		}
-	}  
-
 	var _serv_uuid = '19B10010-E8F2-537E-4F6C-D104768A1214'.toLowerCase();
 	var _char_uuid = '19B10011-E8F2-537E-4F6C-D104768A1214'.toLowerCase();
 
@@ -401,6 +424,48 @@ https://github.com/mourner/simpleheat
 	var ctx2 = canvas.getContext('2d');
 	var canvas2 = document.getElementById('canvas');
 	var ctx2 = canvas2.getContext('2d');
+	
+	
+	//	BLE 訊息消失 
+	function infoDiv(){
+		var box=document.getElementById("BLEinfo");
+		$('#BLEinfo').fadeOut("slow");
+	}
+	function log(v)
+	{
+		var line = Array.prototype.slice.call(arguments).map(function(argument) {
+			return typeof argument === 'string' ? argument : JSON.stringify(argument);
+		}).join(' ');
+		
+		document.querySelector('#BLEinfo').textContent += line + '\n';
+		console.log(line);
+		clearTimeout(timer);
+		timer = setTimeout("infoDiv()",4000);//4秒
+	}
+	function COPshown() {
+		showCOP = showCOP? 0:1;
+	}
+	function setXY(){
+		theMatXY = document.getElementById("XYList").value;
+		if (theMatXY > 0){
+			//theMatXY = list.options[index].value;
+			if (theMatXY == 1){
+				rows = 12;
+				columns = 12;
+				XYspacer = 400/14;
+			}
+			else if (theMatXY == 2){
+				rows = 9;
+				columns = 9;
+				XYspacer = 400/11;
+			}
+			document.querySelector('#connect').classList.remove("disabled");
+		}
+		else{
+			alert("please select one setting!");
+			document.querySelector('#connect').classList.add("disabled");
+		}
+	}  
 
 	function rotate_right(){
 		rotationAngle = rotationAngle == 270? 0: rotationAngle + 90;
@@ -415,59 +480,61 @@ https://github.com/mourner/simpleheat
 		HFlip = HFlip == 0? 1: 0;
 	}
 
-  function _connect() {
-	if (theMatXY > 0){
-		document.querySelector('#log').textContent = '';
-		log('Requesting any BLE Device...');
-		/*navigator.bluetooth.requestDevice({
-		 // filters: [...] <- Prefer filters to save energy & show relevant devices.
-			acceptAllDevices: true,
-			optionalServices: [_serv_uuid]
-			})*/
-		navigator.bluetooth.requestDevice(
-			{filters: [{name: 'SmartMat_BLE'}],
-			optionalServices: [_serv_uuid]})	
-		.then(device => {
-		  log('Connecting to GATT Server...');
-		  bluetoothDevice = device;
-		  bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
-		  return device.gatt.connect();
-		})
-		.then(server => {
-		  log('Getting Service.');
-		  return server.getPrimaryService(_serv_uuid);
-		})
-		.then(service => {
-		  log('Getting Characteristic...');
-		  return service.getCharacteristic(_char_uuid);
-		})
-		.then(characteristic => characteristic.startNotifications())
-		.then(characteristic => {
-		  log('Reading values from SmartMat...');
-		  myCharacteristic = characteristic;
-			characteristic.addEventListener('characteristicvaluechanged',
-			getNewData);
-		  connected = true;
-		  _update();
-			
-		  return characteristic.readValue();
-		})
-		.catch(error => {
-		  if (bluetoothDevice && bluetoothDevice.gatt.connected) {
-			bluetoothDevice.gatt.disconnect();
-		  }
-		  bluetoothDevice = null;
-		  connected = false;
-		  log("Error:"+error); 
-		  document.querySelector('#hint').innerText = "Bluetooth connection fail! \nPlease reload this page and reboot the SmartMat module!";
-		  document.querySelector('#hint').style.color = "red";
-		  _update();
-		});
-	}
-	else
-		alert("please select one SmartMat Size!");
+	function _connect() {
+		if (theMatXY > 0){
+			$("#BLEinfo").show();
+			//document.querySelector('#BLEinfo').textContent = '';
+			document.getElementById("BLEinfo").textContent = '';
+			log('Requesting any BLE Device...');
+			/*navigator.bluetooth.requestDevice({
+			 // filters: [...] <- Prefer filters to save energy & show relevant devices.
+				acceptAllDevices: true,
+				optionalServices: [_serv_uuid]
+				})*/
+			navigator.bluetooth.requestDevice(
+				{filters: [{name: 'SmartMat_BLE'}],
+				optionalServices: [_serv_uuid]})	
+			.then(device => {
+			  log('Connecting to GATT Server...');
+			  bluetoothDevice = device;
+			  bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
+			  return device.gatt.connect();
+			})
+			.then(server => {
+			  log('Getting Service.');
+			  return server.getPrimaryService(_serv_uuid);
+			})
+			.then(service => {
+			  log('Getting Characteristic...');
+			  return service.getCharacteristic(_char_uuid);
+			})
+			.then(characteristic => characteristic.startNotifications())
+			.then(characteristic => {
+			  log('Reading values from SmartMat...');
+			  myCharacteristic = characteristic;
+				characteristic.addEventListener('characteristicvaluechanged',
+				getNewData);
+			  connected = true;
+			  _update();
+				
+			  return characteristic.readValue();
+			})
+			.catch(error => {
+			  if (bluetoothDevice && bluetoothDevice.gatt.connected) {
+				bluetoothDevice.gatt.disconnect();
+			  }
+			  bluetoothDevice = null;
+			  connected = false;
+			  log("Error:"+error); 
+			  document.querySelector('#hint').innerText = "Bluetooth connection fail! Please try again or reload this page and reboot the SmartMat module!";
+			  document.querySelector('#hint').style.color = "red";
+			  _update();
+			});
+		}
+		else
+			alert("please select one SmartMat Size!");
 
-  }
+	}
    
 	  
 	function drawCOP(x,y) {
@@ -476,6 +543,14 @@ https://github.com/mourner/simpleheat
 		ctx2.arc(x, y, 5, 0, Math.PI*2);
 		ctx2.fillStyle = "red";
 		ctx2.fill();
+		ctx2.moveTo(0, 200);
+		ctx2.lineTo(400, 200);
+		ctx2.moveTo(200, 0);
+		ctx2.lineTo(200, 400);
+		ctx2.lineWidth = 0.2;
+		// set line color
+		ctx2.strokeStyle = "PURPLE";
+		ctx2.stroke();
 		ctx2.closePath();
 	} 
    
@@ -534,10 +609,9 @@ https://github.com/mourner/simpleheat
 					}
 				}
 				COProw /= Psum;
-				COPcol /= Psum;
-				gamePadXrange(COProw);
-				
-				//var data = [[38,20,2],[38,690,3],[48,30,1],[48,40,1],[48,670,1],[58,640,1],[58,680,1],[67,630,1],[86,10,1],[86,660,1],[96,0,1],[96,80,1],[96,530,1],[96,540,2],[96,560,1],[96,620,1],[96,640,1],[105,530,1],[105,560,3],[105,590,1],[105,610,1],[115,300,1],[115,310,4],[125,260,1],[125,280,1],[125,300,1],[125,500,1],[125,530,1],[134,250,1],[134,260,1],[134,280,1],[144,40,1],[144,260,1],[144,270,4],[144,320,1],[144,330,1],[153,220,1],[163,280,1],[173,120,2],[182,80,1],[182,120,2],[192,10,1],[192,120,1],[192,130,2],[192,190,1],[192,530,1],[201,120,2],[201,130,1],[201,150,1],[201,190,1],[201,240,1],[201,280,1],[201,290,1],[201,340,1],[201,390,3],[201,400,2],[201,420,1],[201,670,1],[201,710,1],[201,750,1],[211,160,2],[211,280,1],[211,320,1],[211,340,1],[211,800,2],[211,810,2],[221,80,1],[221,140,2],[221,170,1],[221,180,1],[221,230,1],[221,420,1],[221,490,2],[221,730,1],[230,150,1],[230,550,4],[230,670,1],[230,790,2],[240,100,1],[240,120,1],[240,150,1],[240,160,1],[240,220,1],[240,240,1],[240,300,1],[240,330,1],[240,460,1],[240,480,2],[240,550,1],[240,570,1],[240,840,2],[249,70,1],[249,120,1],[249,200,1],[249,210,1],[249,290,3],[249,340,1],[249,860,2],[249,870,2],[259,0,1],[259,90,1],[259,160,1],[259,180,1],[259,190,1],[259,270,1],[259,280,1],[259,290,2],[259,320,1],[259,360,1],[259,430,1],[259,480,1],[259,490,1],[259,860,1],[269,60,2],[269,150,1],[269,220,1],[269,260,1],[269,280,1],[269,290,1],[269,300,1],[269,320,1],[269,350,1],[269,450,3],[269,470,2],[269,480,3],[269,490,1],[278,120,1],[278,140,1],[278,150,2],[278,190,1],[278,220,1],[278,260,1],[278,290,2],[278,500,2],[278,680,2],[278,740,2],[288,0,1],[288,50,1],[288,150,2],[288,230,1],[288,260,1],[288,280,1],[288,290,2],[288,320,1],[288,330,1],[288,340,1],[288,460,1],[288,630,2],[288,720,2],[288,730,2],[288,750,2],[288,790,2],[288,840,1],[297,20,1],[297,120,2],[297,140,2],[297,150,1],[297,180,1],[297,250,4],[297,290,8],[297,300,4],[297,310,1],[297,340,2],[297,350,2],[297,360,1],[297,380,2],[297,410,1],[297,430,2],[297,440,5],[297,450,1],[297,460,8],[297,470,2],[297,480,4],[297,490,2],[297,500,3],[297,520,2],[297,530,1],[297,540,1],[297,550,1],[297,610,1],[297,620,2],[297,630,4],[297,640,1],[297,650,2],[297,660,3],[297,670,11],[297,690,1],[297,700,1],[297,710,2],[297,730,2],[297,770,3],[297,780,2],[297,790,2],[297,830,2],[307,0,1],[307,10,1],[307,70,1],[307,100,1],[307,120,3],[307,140,2],[307,150,2],[307,170,2],[307,180,1],[307,230,1],[307,250,1],[307,270,1],[307,290,1],[307,300,1],[307,320,1],[307,350,1],[307,680,2],[307,690,2],[307,700,2],[307,710,1],[307,730,1],[307,840,1],[307,850,2],[316,0,1],[316,140,1],[316,150,1],[316,270,1],[316,410,1],[316,420,1],[316,430,4],[316,440,1],[316,460,1],[316,490,1],[316,510,1],[316,530,2],[316,550,1],[316,690,1],[316,700,2],[316,730,1],[316,850,1],[316,880,1],[326,20,1],[326,90,1],[326,110,1],[326,130,1],[326,170,2],[326,190,1],[326,230,1],[326,260,1],[326,280,1],[326,290,1],[326,300,2],[326,310,1],[326,320,1],[326,330,1],[326,410,1],[326,460,1],[326,480,1],[326,530,1],[326,580,1],[326,680,1],[326,690,3],[326,750,2],[326,840,1],[326,870,1],[326,1010,2],[336,140,1],[336,170,1],[336,180,1],[336,190,1],[336,230,1],[336,240,1],[336,290,2],[336,310,1],[336,480,1],[336,510,1],[336,690,1],[336,730,1],[336,750,3],[336,810,1],[336,870,3],[336,880,1],[336,960,1],[336,990,1],[336,1000,1],[345,0,1],[345,150,3],[345,160,1],[345,190,2],[345,240,1],[345,260,1],[345,290,4],[345,400,1],[345,420,1],[345,440,1],[345,460,1],[345,500,1],[345,510,1],[345,530,1],[345,630,1],[345,650,1],[345,690,1],[345,710,1],[345,750,2],[345,820,1],[345,850,2],[345,900,1],[345,960,1],[355,20,1],[355,140,1],[355,150,1],[355,160,1],[355,180,2],[355,220,1],[355,250,1],[355,280,1],[355,290,3],[355,300,1],[355,310,2],[355,320,2],[355,330,4],[355,460,1],[355,470,1],[355,510,1],[355,680,1],[355,750,1],[355,800,2],[355,810,1],[355,850,1],[364,150,1],[364,160,1],[364,170,1],[364,200,1],[364,230,1],[364,250,1],[364,290,1],[364,310,1],[364,430,1],[364,520,1],[364,700,1],[364,720,1],[364,760,1],[364,780,4],[364,900,1],[364,980,1],[374,90,1],[374,140,1],[374,150,2],[374,180,2],[374,190,2],[374,250,1],[374,260,2],[374,340,1],[374,450,1],[374,480,1],[374,490,1],[374,690,1],[374,870,1],[384,30,3],[384,40,1],[384,50,1],[384,80,1],[384,120,1],[384,140,1],[384,150,1],[384,180,1],[384,210,1],[384,250,4],[384,270,1],[384,300,1],[384,310,1],[384,350,1],[384,390,1],[384,400,2],[384,550,1],[384,560,1],[384,730,1],[384,780,1],[393,50,1],[393,70,1],[393,100,1],[393,140,1],[393,150,2],[393,160,1],[393,180,2],[393,210,1],[393,290,1],[393,310,1],[393,400,2],[393,450,1],[393,480,1],[393,510,1],[393,520,1],[393,600,1],[393,610,1],[393,620,1],[393,630,1],[393,640,1],[393,660,1],[393,680,1],[393,710,1],[393,720,1],[393,850,1],[403,160,1],[403,230,2],[403,250,1],[403,280,1],[403,390,1],[403,400,2],[403,450,1],[403,470,1],[403,500,2],[403,570,1],[403,600,1],[403,610,1],[403,640,4],[403,690,3],[403,720,1],[403,750,1],[412,150,1],[412,160,1],[412,210,1],[412,220,1],[412,250,1],[412,270,1],[412,280,2],[412,330,1],[412,380,2],[412,400,4],[412,450,1],[412,470,1],[412,480,1],[412,490,1],[412,520,1],[412,530,1],[412,560,1],[412,620,2],[412,650,1],[412,680,1],[412,700,1],[412,750,1],[412,840,1],[412,870,1],[422,30,1],[422,40,1],[422,60,1],[422,160,1],[422,170,2],[422,180,1],[422,200,1],[422,220,1],[422,400,1],[422,420,1],[422,450,1],[422,460,1],[422,480,1],[422,490,2],[422,510,1],[422,560,1],[422,600,1],[422,610,1],[422,620,1],[422,630,1],[422,640,1],[422,700,1],[422,710,2],[422,780,1],[432,110,1],[432,150,1],[432,170,1],[432,180,1],[432,240,1],[432,250,1],[432,260,1],[432,310,1],[432,330,1],[432,380,1],[432,430,1],[432,460,1],[432,480,1],[432,510,1],[432,520,1],[432,530,1],[432,620,3],[432,630,5],[432,660,1],[432,670,2],[432,680,1],[432,690,1],[432,730,3],[432,740,1],[432,750,2],[441,50,1],[441,120,1],[441,140,1],[441,150,1],[441,190,2],[441,220,1],[441,290,1],[441,330,1],[441,400,1],[441,410,1],[441,450,1],[441,480,2],[441,500,2],[441,510,1],[441,540,1],[441,570,1],[441,600,2],[441,610,3],[441,620,1],[441,680,3],[441,690,2],[441,730,1],[441,850,1],[441,870,1],[451,140,1],[451,150,3],[451,160,1],[451,220,1],[451,400,1],[451,410,1],[451,450,1],[451,460,1],[451,480,2],[451,560,1],[451,570,1],[451,590,1],[451,600,1],[451,610,4],[451,620,2],[451,870,1],[451,950,2],[460,140,1],[460,150,1],[460,160,1],[460,230,1],[460,300,1],[460,310,3],[460,320,3],[460,330,5],[460,340,8],[460,350,2],[460,400,1],[460,410,1],[460,440,2],[460,450,1],[460,470,1],[460,520,1],[460,630,1],[460,670,1],[460,720,1],[460,850,1],[470,10,1],[470,130,1],[470,140,2],[470,150,1],[470,180,1],[470,220,1],[470,260,1],[470,300,1],[470,330,1],[470,340,1],[470,360,3],[470,400,1],[470,450,1],[470,520,1],[470,600,1],[470,670,1],[470,700,1],[470,850,3],[480,200,1],[480,220,1],[480,290,2],[480,320,2],[480,330,7],[480,410,1],[480,450,2],[480,510,1],[480,540,1],[480,620,2],[480,650,1],[480,670,2],[480,700,1],[480,730,1],[489,20,1],[489,130,1],[489,140,1],[489,150,2],[489,160,1],[489,170,1],[489,190,1],[489,220,2],[489,230,1],[489,240,2],[489,250,2],[489,260,1],[489,270,3],[489,280,1],[489,290,1],[489,430,1],[489,450,1],[489,510,1],[489,640,2],[489,770,1],[489,780,1],[489,840,2],[489,880,1],[499,100,1],[499,110,1],[499,120,1],[499,130,1],[499,140,2],[499,160,2],[499,170,1],[499,180,1],[499,210,1],[499,220,1],[499,240,1],[499,310,2],[499,380,1],[499,410,1],[499,450,1],[499,530,1],[499,540,1],[499,650,2],[499,720,1],[499,790,6],[499,810,1],[508,20,1],[508,120,1],[508,130,2],[508,140,2],[508,150,1],[508,190,1],[508,280,2],[508,360,1],[508,410,1],[508,450,2],[508,490,1],[508,510,2],[508,760,2],[508,860,1],[518,20,1],[518,60,1],[518,100,1],[518,120,1],[518,140,1],[518,150,1],[518,160,1],[518,180,1],[518,200,1],[518,210,1],[518,400,1],[518,410,1],[518,500,1],[527,120,1],[527,140,1],[527,150,1],[527,220,18],[527,230,3],[527,240,1],[527,270,1],[527,300,3],[527,380,1],[527,450,1],[527,470,1],[527,480,1],[527,490,2],[527,500,1],[527,510,2],[527,570,1],[527,580,1],[527,650,7],[527,830,1],[537,140,1],[537,150,1],[537,160,1],[537,170,1],[537,270,1],[537,410,1],[537,450,1],[537,470,2],[537,490,1],[537,630,1],[537,670,2],[537,760,1],[537,880,2],[547,80,2],[547,160,1],[547,180,4],[547,260,2],[547,270,1],[547,280,1],[547,380,1],[547,390,1],[547,410,1],[547,420,1],[547,520,1],[547,630,1],[547,750,3],[547,770,2],[547,860,4],[556,50,1],[556,70,1],[556,130,2],[556,140,1],[556,160,1],[556,190,1],[556,230,5],[556,290,1],[556,300,1],[556,330,1],[556,390,11],[556,450,2],[556,460,13],[556,500,13],[556,520,6],[556,530,14],[556,600,3],[556,660,4],[566,140,1],[566,170,1],[566,180,1],[566,230,1],[566,260,1],[566,320,3],[566,360,1],[566,490,1],[566,830,3],[575,20,1],[575,140,2],[575,150,2],[575,160,1],[575,180,1],[575,260,11],[575,330,1],[575,410,2],[575,450,1],[585,90,1],[585,100,1],[585,140,1],[585,160,1],[585,180,1],[585,190,1],[585,200,1],[585,250,1],[585,310,1],[585,330,1],[585,830,1],[595,30,1],[595,70,2],[595,80,1],[595,90,1],[595,140,1],[595,160,1],[595,180,1],[595,200,1],[595,250,1],[595,280,1],[595,450,1],[595,530,1],[595,540,1],[604,20,1],[604,150,2],[604,180,1],[604,200,1],[604,290,1],[604,410,1],[604,830,1],[614,0,3],[614,20,1],[614,40,1],[614,140,1],[614,160,1],[614,180,1],[614,230,1],[614,430,1],[614,510,1],[623,200,1],[623,230,2],[623,300,1],[623,330,1],[623,410,1],[623,420,1],[623,520,1],[623,530,2],[623,570,5],[633,60,1],[633,150,1],[633,170,1],[633,190,1],[633,260,2],[633,400,1],[633,570,4],[633,830,1],[643,0,1],[643,70,1],[643,150,1],[643,330,2],[643,570,10],[643,590,1],[652,0,2],[652,140,1],[652,160,1],[652,180,2],[652,400,1],[652,470,1],[652,570,4],[652,830,1],[662,170,1],[662,180,1],[662,290,2],[662,400,1],[662,570,2],[671,0,1],[671,30,1],[671,160,1],[671,170,1],[671,310,1],[671,400,1],[671,720,1],[681,0,1],[681,160,1],[681,280,1],[681,320,1],[700,80,1],[700,170,1],[700,850,1],[710,240,1],[710,450,1],[719,80,1],[719,140,1],[719,150,1],[719,710,1],[729,240,1],[729,840,1],[738,10,1],[738,40,1],[738,450,1],[748,0,1],[758,300,1],[758,660,1],[767,270,2],[796,160,1],[806,970,1],[815,280,1],[815,300,1],[815,360,1],[825,790,1],[844,470,1],[901,270,1],[921,220,1],[921,340,1],[921,720,1],[930,490,1],[930,500,1],[940,180,2],[940,430,1],[940,510,1],[940,580,1],[949,120,5],[949,150,1],[949,180,1],[949,370,1],[949,390,1],[949,570,2],[949,720,1],[949,770,2],[949,780,1],[949,860,1]];
+				COPcol /= Psum;	
+				//console.log(COProw);
+				COPXrange(COProw);				
 				
 				heat.clear();
 				heat.data(data);
@@ -551,73 +625,153 @@ https://github.com/mourner/simpleheat
 
 	}
 	
-  function gamePadXrange(copx) {
-	mapMIN = 220;
-	mapMAX = 380;
-	COPpaddleX = 480/(mapMAX-mapMIN)*(copx-mapMIN);
-	if (COPpaddleX<10) COPpaddleX = 10;
-  }
-	
-  function onDisconnected(event) {
-      log("Disconnected by remote device!"); 
-      bluetoothDevice = null;
-      connected = false;
-	  Psum = 0;
-      _update();    
-  }
+	function COPXrange(copx) {
+		mapMIN = 100;
+		mapMAX = 300;
+		COPpaddleX = 100/(mapMAX-mapMIN)*(copx-mapMIN); // 0 -> 100
+		if (COPpaddleX<10) COPpaddleX = 10;
+	}	
+	function onDisconnected(event) {
+		log("Disconnected by remote device!");
+		//connect();  
+		bluetoothDevice = null;
+		connected = false;
+		Psum = 0;
+		_update();  
+	}
+	function connect() {
+		exponentialBackoff(3 /* max retries */, 2 /* seconds delay */,
+		function toTry() {
+			time('Connecting to Bluetooth Device... ');
+			
+			//bluetoothDevice.gatt.disconnect();
+			//log(bluetoothDevice);
+			//return bluetoothDevice.gatt.connect();
+			/*Bluetooth.requestDevice(
+				{filters: [{name: 'SmartMat_BLE'}],
+				optionalServices: [_serv_uuid]})	
+			.then(device => {
+			  log('Connecting to GATT Server...');
+			  bluetoothDevice = device;
+			  bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
+			  return device.gatt.connect();
+			})
+			.then(server => {
+			  log('Getting Service.');
+			  return server.getPrimaryService(_serv_uuid);
+			})
+			.then(service => {
+			  log('Getting Characteristic...');
+			  return service.getCharacteristic(_char_uuid);
+			})
+			.then(characteristic => characteristic.startNotifications())
+			.then(characteristic => {
+			  log('Reading values from SmartMat...');
+			  myCharacteristic = characteristic;
+				characteristic.addEventListener('characteristicvaluechanged',
+				getNewData);
+			  connected = true;
+			  _update();
+				
+			  return characteristic.readValue();
+			})
+			.catch(error => {
+			  if (bluetoothDevice && bluetoothDevice.gatt.connected) {
+				bluetoothDevice.gatt.disconnect();
+			  }
+			  bluetoothDevice = null;
+			  connected = false;
+			  log("Error:"+error); 
+			  document.querySelector('#hint').innerText = "Bluetooth connection fail! Please try again or reload this page and reboot the SmartMat module!";
+			  document.querySelector('#hint').style.color = "red";
+			  _update();
+			});*/
+		},
+		function success() {
+			log('> Bluetooth Device connected. Try disconnect it now.');
+		},
+		function fail() {
+			time('Failed to reconnect.');
+			bluetoothDevice = null;
+			connected = false;
+			Psum = 0;
+			_update();  
+		});
+	}
+	/* Utils */
 
-  function _disconnect() {
-    log("_disconnect");
-    if (!connected) {
-      return;
-    }
-    log('Disconnecting from BLE Device...');
-    if (bluetoothDevice.gatt.connected) {
-      bluetoothDevice.gatt.disconnect();
-    } else {
-      log('> Bluetooth Device is already disconnected');
-    }
-    _update();
-  }
+	// This function keeps calling "toTry" until promise resolves or has
+	// retried "max" number of times. First retry has a delay of "delay" seconds.
+	// "success" is called upon success.
+	function exponentialBackoff(max, delay, toTry, success, fail) {
+		toTry().then(result => success(result))
+		.catch(_ => {
+			if (max === 0) {
+				return fail();
+			}
+			time('Retrying in ' + delay + 's... (' + max + ' tries left)');
+			setTimeout(function() {
+				exponentialBackoff(--max, delay * 2, toTry, success, fail);
+			}, delay * 1000);
+		});
+	}
 
-  function _update()
-  {
-	// set same and even X-Y
-	XYaxis = rows > columns? rows: columns;
-	//if (XYaxis%2 != 0) XYaxis+=1;
-	XYspacer = $(relative).width()>600? 600:$(relative).width();
-	XYspacer = XYspacer / (XYaxis+1);
-	//log(XYspacer)
-	for (var i = 0; i < XYaxis+2; i++) x[i] = i*XYspacer;
-	for (var j = 0; j < XYaxis+2; j++) y[j] = j*XYspacer;
-	draw();
+	function time(text) {
+		log('[' + new Date().toJSON().substr(11, 8) + '] ' + text);
+	}
 	
-    if(!navigator.bluetooth) {
-      document.querySelector('#hint').innerText = "Hint: Web Bluetooth API is not available on current browser";
-      document.querySelector('#connect').classList.add("disabled");
-      return;
-    }
-	
-    if(connected)
-    {
-		document.getElementById("XYList").disabled=true;
-      document.querySelector('#connect').onclick = _disconnect;
-      document.querySelector('#connect').innerText = "Disconnect";
-		document.querySelector('#connect').classList.remove("disabled");
-      document.querySelector('#connect').classList.remove("btn-primary");
-    }
-    else
-    {
-      document.querySelector('#connect').onclick = _connect;
-      document.querySelector('#connect').innerText = "Connect";
-      document.querySelector('#connect').classList.add("btn-primary");
-    }
-  }
+	function _disconnect() {
+		log("_disconnect");
+		if (!connected) {
+			return;
+		}
+		log('Disconnecting from BLE Device...');
+		if (bluetoothDevice.gatt.connected) {
+			bluetoothDevice.gatt.disconnect();
+		} else {
+			log('> Bluetooth Device is already disconnected');
+		}
+		_update();
+	}
+
+	function _update(){
+		var d = new Date(startTime);
+		document.getElementById('beginDate').textContent=d.toLocaleString();
+		// set same and even X-Y
+		XYaxis = rows > columns? rows: columns;
+		XYspacer = $(relative).width()>400? 400:$(relative).width();
+		XYspacer = XYspacer / (XYaxis+1);
+		
+		for (var i = 0; i < XYaxis+2; i++) x[i] = i*XYspacer;
+		for (var j = 0; j < XYaxis+2; j++) y[j] = j*XYspacer;
+		draw();
+		
+		if(!navigator.bluetooth) {
+		  document.querySelector('#hint').innerText = "Hint: Web Bluetooth API is not available on current browser";
+		  document.querySelector('#connect').classList.add("disabled");
+		  return;
+		}
+		
+		if(connected)
+		{
+			document.getElementById("XYList").disabled=true;
+		  document.querySelector('#connect').onclick = _disconnect;
+		  document.querySelector('#connect').innerText = "Disconnect";
+			document.querySelector('#connect').classList.remove("disabled");
+		  document.querySelector('#connect').classList.remove("btn-primary");
+		}
+		else
+		{
+		  document.querySelector('#connect').onclick = _connect;
+		  document.querySelector('#connect').innerText = "Connect";
+		  document.querySelector('#connect').classList.add("btn-primary");
+		}
+	}
 
 </script>
 <script src="js/simpleheat.js"></script>
 <script>
-
+	// simpleheat初始設定	
 	window.requestAnimationFrame = window.requestAnimationFrame || window.mozRequestAnimationFrame ||
 								   window.webkitRequestAnimationFrame || window.msRequestAnimationFrame;
 
@@ -636,19 +790,11 @@ https://github.com/mourner/simpleheat
 	}
 	function draw() {	
 		//https://jsbin.com/elosil/2/edit?html,js,output
-		canvas.width = $(relative).width()>600? 600:$(relative).width();
-		if (theMatXY == 1)	//12x18
-			canvas.height = canvas.width*18/12;
-		else if (theMatXY == 2)	//9x9
-			canvas.height = canvas.width;			
+		canvas.width = $(relative).width()>400? 400:$(relative).width();
+		canvas.height = canvas.width;			
 	}
 	
-	$(".nav li").on("click", function() {
-	  $(".nav li").removeClass("active");
-	  $(this).addClass("active");
-	});
-
-	drawheat();
+	//drawheat();
 	
 	var radius = get('radius'),
 		blur = get('blur'),
@@ -659,59 +805,337 @@ https://github.com/mourner/simpleheat
 		frame = frame || window.requestAnimationFrame(drawheat);
 	};
 
-</script>
- <script>
-//checkCookie();
-
-	//newPieChart('PieChart1', [sitTimeCNT,leaveTimeCNT], ['座位上','不在座位上']);
-	//newPieChart('PieChart2', [stillTimeCNT,sitTimeCNT-stillTimeCNT], ['專注靜止','動態活動']);
-$(function () {
-	var ctx = document.getElementById('PieChart1').getContext('2d');
-	data1 = {
-			datasets: [{
-				data: [sitTimeCNT,leaveTimeCNT],
-				backgroundColor: ['rgb(255, 99, 132)','rgb(75, 192, 192)'],
-				label: 'Dataset 1'
-			}],
-			labels: ['座位上','不在座位上']
+	// 圓餅圖初始設定	
+	$(function () {
+		var ctx = document.getElementById('PieChart1').getContext('2d');
+		data1 = {
+				datasets: [{
+					data: [sitTimeCNT,leaveTimeCNT],
+					backgroundColor: ['rgb(255, 99, 132)','rgb(75, 192, 192)']
+				}],
+				labels: ['座位上','不在座位上']
+			};
+		PChart1 = new Chart(ctx, {
+			type: 'pie',
+			data: data1,
+			options: {
+				tooltips: {
+					enabled: false
+				},
+				legend: {
+					reverse: true,
+					labels: { 
+						fontSize : 18,
+					}
+				},
+				responsive: true,
+				plugins: {
+				  datalabels: {
+					formatter: (value, ctx) => {
+					  let sum = 0;
+					  let dataArr = ctx.chart.data.datasets[0].data;
+					  dataArr.map(data => {
+						sum += data;
+					  });
+					  let percentage = (value * 100 / sum).toFixed(0) + "%";
+					  return percentage;
+					},
+					color: 'white',
+					labels: {
+					  title: {
+						font: {
+						  size: '20'
+						}
+					  }
+					}
+				  }
+				}
+			}
+		});
+		
+		var ctx2 = document.getElementById('PieChart2').getContext('2d');
+		var data2 = {
+				datasets: [{
+					data: [stillTimeCNT,sitTimeCNT-stillTimeCNT],
+					backgroundColor: ['rgb(255, 99, 132)','rgb(75, 192, 192)'],
+					label: 'Dataset 1'
+				}],
+				labels: ['專注靜止','動態活動']
+			};
+		PChart2 = new Chart(ctx2, {
+			type: 'pie',
+			data: data2,
+			options: {
+				tooltips: {
+					enabled: false
+				},
+				legend: {
+					reverse: true,
+					labels: { 
+						fontSize : 18,
+					}
+				},
+				responsive: true,
+				plugins: {
+				  datalabels: {
+					formatter: (value, ctx) => {
+					  let sum = 0;
+					  let dataArr = ctx.chart.data.datasets[0].data;
+					  dataArr.map(data => {
+						sum += data;
+					  });
+					  let percentage = (value * 100 / sum).toFixed(0) + "%";
+					  return percentage;
+					},
+					color: 'white',
+					labels: {
+					  title: {
+						font: {
+						  size: '20'
+						}
+					  }
+					}
+				  }
+				}
+			}
+		});
+		
+		// 重心偏移pie
+		var ctx5 = document.getElementById('PieChart5').getContext('2d');
+		var data5 = {
+				datasets: [{
+					data: [COP_L_TCNT, COP_R_TCNT],
+					backgroundColor: ['rgb(9, 125, 40)','rgb(14, 88, 174)']
+				}],
+				labels: ['右偏時間','左偏時間']
+			};
+			
+		PChart5 = new Chart(ctx5, {
+			type: 'pie',
+			data: data5,
+			options: {
+				tooltips: {
+					enabled: false
+				},
+				legend: {
+					reverse: true,
+					labels: { 
+						fontSize : 18,
+					}
+				},
+				responsive: true,
+				plugins: {
+				  datalabels: {
+					formatter: (value, ctx) => {
+					  let sum = 0;
+					  let dataArr = ctx.chart.data.datasets[0].data;
+					  dataArr.map(data => {
+						sum += data;
+					  });
+					  let percentage = (value * 100 / sum).toFixed(0) + "%";
+					  return percentage;
+					},
+					color: 'white',
+					labels: {
+					  title: {
+						font: {
+						  size: '20'
+						}
+					  }
+					}
+				  }
+				}
+			}
+		});
+		
+		// COP長條圖
+		var ctx3 = document.getElementById('BarChart1').getContext('2d');
+		var data3 = {
+			labels: ['前6日','前5日','前4日','前3日','前2日','前1日','今天'],
+			datasets: [
+				{
+					type: 'line',
+					label: '平均重心偏移量',
+					borderColor: 'red',
+					borderWidth: 2,
+					fill: false,
+					data: [	0, 0, 0, 0, 0, 0, 0],
+					yAxisID: "COP1"
+				},	
+				{
+					type: 'bar',
+					label: '左偏比例',
+					backgroundColor: '#0E58AE',
+					data: [	0, 0, 0, 0, 0, 0, 0],
+					yAxisID: "COP2"
+				},	
+				{
+					type: 'bar',
+					label: '右偏比例',
+					backgroundColor: '#097D28',
+					data:[	0, 0, 0, 0, 0, 0, 0],
+					yAxisID: "COP3"
+				}		
+			]				
 		};
-	PChart1 = new Chart(ctx, {
-		type: 'pie',
-		data: data1,
-		options: {
-			legend: {
-				reverse: true
-			},
-			responsive: true
-		}
-	});
-	
-	var ctx2 = document.getElementById('PieChart2').getContext('2d');
-	var data2 = {
-			datasets: [{
-				data: [stillTimeCNT,sitTimeCNT-stillTimeCNT],
-				backgroundColor: ['rgb(255, 99, 132)','rgb(75, 192, 192)'],
-				label: 'Dataset 1'
-			}],
-			labels: ['專注靜止','動態活動']
+			
+		PChart3 = new Chart(ctx3, {
+			type: 'bar',
+			data: data3,
+			options: {
+				tooltips: {
+					enabled: false
+				},
+				legend: {
+					position : 'bottom',
+					labels: { 
+						fontSize : 18,
+					}
+				},
+				responsive: true,
+				scales: {
+					xAxes: [{
+						stacked: true,
+						display: true,
+						ticks: {
+							fontSize: 18
+						}
+					}],
+					yAxes: [{
+						position: 'left',
+						id: 'COP1',
+						ticks: {
+							suggestedMin: -1,
+							suggestedMax: 1,
+							// forces step size to be 5 units
+							stepSize: 0.2,
+							fontSize: 18
+						},
+						display: true,
+						scaleLabel: {
+							display: true,
+							labelString: '重心偏移 (公分)',
+							fontSize: 18,
+							fontColor:'black',
+						}
+					},{	
+						id: 'COP2',
+						position: 'right',
+						ticks: {
+							suggestedMin: -70,
+							suggestedMax: 70,
+							// forces step size to be 5 units
+							stepSize: 20,
+							fontSize: 18
+						},
+						display: true,
+						scaleLabel: {
+							display: true,
+							labelString: '時間百分比 (%)',
+							fontSize: 18,
+							fontColor:'black',
+						},
+					   gridLines: {
+						   display: false
+					   }					
+					},{	
+						id: 'COP3',
+						position: 'right',
+						ticks: {
+							suggestedMin: -70,
+							suggestedMax: 70,
+							// forces step size to be 5 units
+							stepSize: 20
+						},
+						display: false,
+						gridLines: {
+							display: false
+						 }						
+					}]
+				},
+				plugins: {
+				  datalabels: {
+					formatter: (value, ctx) => {
+						let datasets = ctx.chart.data.datasets;
+						// '平均重心偏移量' 不顯示數值
+						if (datasets.indexOf(ctx.dataset) === 0)
+							return '';
+						// 右偏去除負值
+						else if (datasets.indexOf(ctx.dataset) === 2)
+							return -value+"%";
+						else	
+							return value+"%";
+					},
+					color: 'white',
+					labels: {
+					  title: {
+						font: {
+						  size: '12'
+						}
+					  }
+					}
+				  }
+				}
+			}				
+		});
+		
+		//一周久坐圖		
+		var ctx4 = document.getElementById('AreaChart1').getContext('2d');
+		var data4 = {
+				datasets: [{
+					data: [0,0,0,0,0,0,0],
+					backgroundColor: ['rgb(255, 99, 132)','rgb(75, 192, 192)'],
+					borderColor: "#F24869",
+					backgroundColor: "#EE76A7",
+				}],
+				labels: ['前6日','前5日','前4日','前3日','前2日','前1日','今天']
 		};
-	PChart2 = new Chart(ctx2, {
-		type: 'pie',
-		data: data2,
-		options: {
-			legend: {
-				reverse: true
+		PChart4 = new Chart(ctx4, {
+			type: 'line',
+			data: data4,
+			stroke: {
+			  curve: 'straight'
 			},
-			responsive: true
-		}
+			options: {
+				responsive: true,
+				scales: {
+					yAxes: [{
+						ticks: {
+							min: 0,
+							fontSize:20
+						},
+						display: true,
+						scaleLabel: {
+							display: true,
+							labelString: '久坐時間 (分鐘)',
+							fontSize: 18,
+							fontColor:'black',
+						}
+					}],
+					xAxes: [{
+						ticks: {
+							fontSize: 18
+						}
+					}],
+				},
+				legend: {
+					display: false,
+				},
+				plugins: {
+				  datalabels: {
+					formatter: (value, ctx) => {
+						let datasets = ctx.chart.data.datasets;
+						// 不顯示數值
+						if (datasets.indexOf(ctx.dataset) === 0)
+							return '';
+					}
+				  }
+				}
+			}
+			
+		});
+		
 	});
-});
-function updatePieChart(chart, newdata){
-	chart.data.datasets.forEach(function(dataset) {
-        dataset.data= newdata;
-    });
-    chart.update();
-}
 </script>
 </body>
 </html>
