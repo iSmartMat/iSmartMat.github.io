@@ -38,24 +38,27 @@ https://github.com/mourner/simpleheat
 	var Psum = 0;
 	var PsumLast = 0;
 	var leaveSeatTimer = 0;
-	var COPpaddleX = 0;
+	var COPpaddleX = 50;
 	var arr;
 	var startTime;
-	var recTime = Date.parse(new Date());
 	var sitTimeCNT;
 	var leaveTimeCNT;
 	var stillTimeCNT;
 	var UpTimeCNT;
+	var Today = new Date();
+	var recTime = new Date(Date.parse(new Date())).getDate()
 	// for COP 
-	var COP_L_TCNT = COP_R_TCNT = 50;
+	var COP_L_TCNT = COP_R_TCNT = 1;
 	var COP_avg = 0;
 	var COP_L_ToldCNT = COP_R_ToldCNT = '1,1,1,1,1,1,1';
 	var COP_oldavg = '0,0,0,0,0,0,0';
 	var sitTime_old = '0,0,0,0,0,0,0';
+	var dates_list = '-,-,-,-,-,-,';
 	var COP_L_T_list = [50,50,50,50,50,50,50];
 	var COP_R_T_list = [50,50,50,50,50,50,50];
 	var COP_avg_list = [0.0,0.0,0.0,0.0,0.0,0.0,0.0];
 	sitTime_list = new Array(7);
+	sitDate_list = new Array(7);
 	
 	function checkCookie()
 	{
@@ -69,27 +72,33 @@ https://github.com/mourner/simpleheat
 		if (arr[12]){
 			recTime = arr[5];
 			COP_L_TCNT = arr[6]; COP_R_TCNT = arr[7]; COP_avg = arr[8];
-			COP_L_ToldCNT =  arr[9]; COP_R_ToldCNT = arr[10]; COP_oldavg = arr[11]; sitTime_old = arr[12];
+			COP_L_ToldCNT =  arr[9]; COP_R_ToldCNT = arr[10]; COP_oldavg = arr[11]; sitTime_old = arr[12]; 
+			dates_list = arr[13];
 		}
 		if (startTime=="" || startTime==null){	// no cookie data
 			sitTimeCNT = leaveTimeCNT = 0;
 			stillTimeCNT = 0;
 			UpTimeCNT = 0;
-			startTime = Date.parse(new Date());//console.log(1);
+			dates_list = '-,-,-,-,-,-,' + ((Today.getMonth()+1) + '/' +Today.getDate());
+			startTime = new Date();//console.log(1);
 		}
 		//將 存的舊資料string轉成 int array
 		COP_L_T_list = COP_L_ToldCNT.split(",").map(function(item) {return parseInt(item, 10);});
 		COP_R_T_list = COP_R_ToldCNT.split(",").map(function(item) {return parseInt(item, 10);});
 		COP_avg_list = COP_oldavg.match(/\d+(?:\.\d+)?/g).map(Number);
 		sitTime_list = sitTime_old.split(",").map(function(item) {return parseInt(item, 10);});
+		sitDate_list = dates_list.split(",");
+		//sitDate_list[6] = (Today.getMonth()+1) + '/' +Today.getDate();
+		document.getElementById('beginDate').textContent=startTime.toLocaleString();
+		
 	}
 	function updateCookie()
 	{
 		var date = new Date();
-		var daysToExpire = 30;
+		var daysToExpire = 30;	// cookie存天數
 		arr = [startTime, sitTimeCNT, stillTimeCNT, UpTimeCNT, leaveTimeCNT, recTime,
 				COP_L_TCNT, COP_R_TCNT, COP_avg,	// today (number)
-				COP_L_ToldCNT, COP_R_ToldCNT, COP_oldavg, sitTime_old		// previous days (string)
+				COP_L_ToldCNT, COP_R_ToldCNT, COP_oldavg, sitTime_old, dates_list	// previous days (string)
 		];
 		var json_str = JSON.stringify(arr);
 		date.setTime(date.getTime()+(daysToExpire*24*60*60*1000));
@@ -114,7 +123,44 @@ https://github.com/mourner/simpleheat
 	}
 	/*********************************************************************************/
 	setInterval(() => {
-		if(connected){
+		if(connected){		
+			// 檢查是否新的一天
+			var date2 = new Date(Date.parse(new Date())).getDate()
+			//var date2 = new Date(Date.parse(Today)).getDate()
+			//console.log(date2);
+			//var diffDays = parseInt((date2 - recTime) / (1000 * 60 * 60 * 24), 10); //1000 *分 * 時 * 日
+			//var diffDays = parseInt((date2 - recTime) / (1000 * 60), 10); 
+			var diffDays = parseInt(date2 - recTime);
+			
+			//新的一天 ******************
+			if (diffDays != 0){ 
+				COP_L_T_list.shift();
+				COP_R_T_list.shift();
+				COP_avg_list.shift();
+				sitTime_list.shift();
+				sitDate_list.shift();
+				
+				// [一周坐姿分析] 日期更新
+				sitDate_list[6] = (Today.getMonth()+1) + '/' +Today.getDate();
+				dates_list = sitDate_list.toString();
+				//console.log(sitDate_list);				
+				
+				// counter歸零
+				recTime = date2;
+				COP_L_TCNT = 1;
+				COP_R_TCNT = 1;
+				COP_avg = 50;
+				sitTimeCNT = stillTimeCNT = leaveTimeCNT = UpTimeCNT = 0;
+				
+			}		
+			sitDate_labels = sitDate_list.slice();	//array copy 要使用 .slice()
+			sitDate_labels[6] = sitDate_labels[6] + '(今天)';
+			//console.log(sitDate_labels);
+			PChart3.data.labels= sitDate_labels;
+			PChart3.update();
+			PChart4.data.labels= sitDate_labels;
+			PChart4.update();	
+			
 			// 狀態計數
 			if (Psum>1000){ // when sitting
 				sitTimeCNT += 1;
@@ -124,14 +170,16 @@ https://github.com/mourner/simpleheat
 				if(Math.abs(PsumLast - Psum)<70)	// 壓力變化小=>靜止
 					stillTimeCNT += 1;	
 				//計算COP平均值
-				//COP_avg = ((COP_avg*(COP_L_TCNT+COP_R_TCNT) + COPpaddleX) / (COP_L_TCNT+COP_R_TCNT+1)).toFixed(2);
+				COP_avg = ((COP_avg*(sitTimeCNT) + COPpaddleX) / (sitTimeCNT+1)).toFixed(2);
 				//counter歸零時有預設COP_L/R_TCNT都有值(50/50)時
-				COP_avg = ((COP_avg*(COP_L_TCNT+COP_R_TCNT-100) + COPpaddleX) / (COP_L_TCNT+COP_R_TCNT-100+1)).toFixed(2);
-				//console.log(COP_avg);
-				if (COPpaddleX < 50)	
-					COP_L_TCNT ++;
+				//COP_avg = ((COP_avg*(COP_L_TCNT+COP_R_TCNT-100) + COPpaddleX) / (COP_L_TCNT+COP_R_TCNT-100+1)).toFixed(2);
+				console.log(COP_avg);
+				if (COPpaddleX < 50)	{
+					COP_L_TCNT += (50-COPpaddleX);
+					//console.log(COP_L_TCNT);
+					}
 				else
-					COP_R_TCNT ++;
+					COP_R_TCNT += (COPpaddleX-50);
 			}
 			else{	// when leaving
 				//console.log(PsumLast - Psum);
@@ -140,29 +188,7 @@ https://github.com/mourner/simpleheat
 					leaveTimeCNT += 1;	// 起身時間總計
 				if(leaveSeatTimer == 5)	//leave the seat(>5s)
 					UpTimeCNT += 1;
-			}
-			
-			// 檢查是否新的一天
-			var date2 = Date.parse(new Date());
-			var diffDays = parseInt((date2 - recTime) / (1000 * 60 * 60 * 24), 10); //1000 *分 * 時 * 日
-			//var diffDays = parseInt((date2 - recTime) / (1000 * 60), 10); 
-			
-			//新的一天 ******************
-			if (diffDays > 0){ 
-				COP_L_T_list.shift();
-				COP_R_T_list.shift();
-				COP_avg_list.shift();
-				sitTime_list.shift();
-				
-				recTime = date2;
-				// counter歸零
-				COP_L_TCNT = 50;
-				COP_R_TCNT = 50;
-				COP_avg = 50;
-				sitTimeCNT = stillTimeCNT = leaveTimeCNT = UpTimeCNT = 0;
-				
 			}			
-			
 			
 			var Chart1_data = [sitTimeCNT,leaveTimeCNT];
 			PChart1.data.datasets.forEach(function(dataset) {
@@ -174,16 +200,14 @@ https://github.com/mourner/simpleheat
 			PChart2.data.datasets.forEach(function(dataset) {
 				dataset.data= Chart2_data;
 			});
-			PChart2.update();
-			
-			/****************/
+			PChart2.update();			
 			
 			// 更新即時數據
 			COP_L_T_list[6] = (COP_L_TCNT / (COP_R_TCNT + COP_L_TCNT)  * 100).toFixed(0);
 			COP_R_T_list[6] = (COP_R_TCNT / (COP_R_TCNT + COP_L_TCNT)  * 100).toFixed(0);
-			COP_avg_list[6] = ((50-COP_avg)*0.15).toFixed(1);
+			COP_avg_list[6] = ((50-COP_avg)*0.15).toFixed(1);	//0.15為單點cm值
 			sitTime_list[6] = sitTimeCNT;
-			console.log(COP_avg_list[6]);
+			//console.log(COP_avg_list[6]);
 			
 			COP_L_ToldCNT = COP_L_T_list.toString();
 			COP_R_ToldCNT = COP_R_T_list.toString();
@@ -192,7 +216,6 @@ https://github.com/mourner/simpleheat
 			
 			// 寫入 cookie
 			updateCookie();
-			/*************/
 			
 			// 左右重心統計 3 plots
 			PChart3.data.datasets[0].data = COP_avg_list;
@@ -223,7 +246,7 @@ https://github.com/mourner/simpleheat
 		d.setTime(d.getTime() + (expirydays*24*60*60*1000));
 		var expires = "expires="+ d.toUTCString();
 		document.cookie = name + "=" + value + "; " + expires;
-		document.getElementById('beginDate').textContent=d.toLocaleString();
+		//document.getElementById('beginDate').textContent=d.toLocaleString();
 	}
 	function deleteCookie(name){
 		setCookie(name,"",-1);
@@ -291,8 +314,8 @@ https://github.com/mourner/simpleheat
 				
 			 <div class="row">
 			   <div class="col-xs-12 col-sm-6">
-				   <div class="panel panel-default">
-					   <div class="panel-heading" style="font-size:2.0em;background-image:none;background: #a4c6ff;">
+				   <div class="panel panel-primary">
+					   <div class="panel-heading" style="font-size:2.0em;">
 						   <b>壓力即時圖像</b>
 					   </div>
 						<div class="panel-body" style="font-size:1.5em;">
@@ -350,13 +373,13 @@ https://github.com/mourner/simpleheat
 						   紀錄開始日期
 					   </div>
 					   <h4><div class="panel-body" id="beginDate"></div></h4>
-						<button class="btn btn-primary"  onclick="deleteCookie('sitData');">重新開始</button>
+						<button class="btn btn-primary" id="resetBTN" onclick="deleteCookie('sitData');">重新開始</button>
 				   </div>
 			   </div>
 			   
 			   <div class="col-xs-12 col-sm-6">
-				   <div class="panel panel-default">
-					   <div class="panel-heading" style="font-size:2.0em;background-image:none;background: #73A340;">
+				   <div class="panel panel-success">
+					   <div class="panel-heading" style="font-size:2.0em;">
 						   <B>今日活動分析</B>
 					   </div>
 					   <div class="panel-body">
@@ -376,8 +399,8 @@ https://github.com/mourner/simpleheat
 			</div>
 			<div class="row">	
 				<div class="col-md-10 col-md-offset-1">
-				   <div class="panel panel-default" style="font-size:2.0em;">
-					   <div class="panel-heading" style="background-image:none;background: #9D8ADB;">
+				   <div class="panel panel-info" style="font-size:2.0em;">
+					   <div class="panel-heading"">
 						   <B>一周坐姿分析</B>
 					   </div>
 					   <div class="panel-body">
@@ -393,7 +416,10 @@ https://github.com/mourner/simpleheat
 		   </div>	
 		</article>
 	</div>
-	
+	<div class="panel-footer" style="text-align: center;">
+		Copyright ©2020 ITRI.
+		Designed and built by SJ. (Ver 2.0)
+	</div>
 <script type="text/javascript">
 	var rows = 18;
 	var columns = 12;
@@ -479,7 +505,9 @@ https://github.com/mourner/simpleheat
 	function H_flip(){
 		HFlip = HFlip == 0? 1: 0;
 	}
-
+	function sleep(ms) {
+		return new Promise(resolve => setTimeout(resolve, ms));
+	}
 	function _connect() {
 		if (theMatXY > 0){
 			$("#BLEinfo").show();
@@ -502,6 +530,7 @@ https://github.com/mourner/simpleheat
 			})
 			.then(server => {
 			  log('Getting Service.');
+			  sleep(1000);
 			  return server.getPrimaryService(_serv_uuid);
 			})
 			.then(service => {
@@ -755,6 +784,8 @@ https://github.com/mourner/simpleheat
 		if(connected)
 		{
 			document.getElementById("XYList").disabled=true;
+		  //document.querySelector('#resetBTN').onclick = _disconnect;
+		  $("#resetBTN").addClass('disabled');
 		  document.querySelector('#connect').onclick = _disconnect;
 		  document.querySelector('#connect').innerText = "Disconnect";
 			document.querySelector('#connect').classList.remove("disabled");
@@ -763,6 +794,8 @@ https://github.com/mourner/simpleheat
 		else
 		{
 		  document.querySelector('#connect').onclick = _connect;
+		  //document.querySelector('#resetBTN').onclick = _connect;
+		  $("#resetBTN").removeClass('disabled');
 		  document.querySelector('#connect').innerText = "Connect";
 		  document.querySelector('#connect').classList.add("btn-primary");
 		}
@@ -907,7 +940,7 @@ https://github.com/mourner/simpleheat
 					data: [COP_L_TCNT, COP_R_TCNT],
 					backgroundColor: ['rgb(9, 125, 40)','rgb(14, 88, 174)']
 				}],
-				labels: ['右偏時間','左偏時間']
+				labels: ['右偏比例','左偏比例']
 			};
 			
 		PChart5 = new Chart(ctx5, {
@@ -951,7 +984,7 @@ https://github.com/mourner/simpleheat
 		// COP長條圖
 		var ctx3 = document.getElementById('BarChart1').getContext('2d');
 		var data3 = {
-			labels: ['前6日','前5日','前4日','前3日','前2日','前1日','今天'],
+			labels: ['-','-','-','-','-','-','今天'],
 			datasets: [
 				{
 					type: 'line',
@@ -1002,11 +1035,11 @@ https://github.com/mourner/simpleheat
 						}
 					}],
 					yAxes: [{
-						position: 'left',
+						position: 'right',
 						id: 'COP1',
 						ticks: {
-							suggestedMin: -1,
-							suggestedMax: 1,
+							suggestedMin: -2,
+							suggestedMax: 2,
 							// forces step size to be 5 units
 							stepSize: 0.2,
 							fontSize: 18
@@ -1020,17 +1053,18 @@ https://github.com/mourner/simpleheat
 						}
 					},{	
 						id: 'COP2',
-						position: 'right',
+						position: 'left',
 						ticks: {
-							suggestedMin: -70,
-							suggestedMax: 70,
+							suggestedMin: -100,
+							suggestedMax: 100,
 							// forces step size to be 5 units
 							stepSize: 20,
-							fontSize: 18
+							fontSize: 18,
+							display: false
 						},
 						display: true,
 						scaleLabel: {
-							display: true,
+							//display: true,
 							labelString: '時間百分比 (%)',
 							fontSize: 18,
 							fontColor:'black',
@@ -1040,10 +1074,10 @@ https://github.com/mourner/simpleheat
 					   }					
 					},{	
 						id: 'COP3',
-						position: 'right',
+						position: 'left',
 						ticks: {
-							suggestedMin: -70,
-							suggestedMax: 70,
+							suggestedMin: -100,
+							suggestedMax: 100,
 							// forces step size to be 5 units
 							stepSize: 20
 						},
@@ -1062,9 +1096,9 @@ https://github.com/mourner/simpleheat
 							return '';
 						// 右偏去除負值
 						else if (datasets.indexOf(ctx.dataset) === 2)
-							return -value+"%";
+							return -value+"%\n(右)";
 						else	
-							return value+"%";
+							return value+"%\n(左)";
 					},
 					color: 'white',
 					labels: {
@@ -1088,7 +1122,7 @@ https://github.com/mourner/simpleheat
 					borderColor: "#F24869",
 					backgroundColor: "#EE76A7",
 				}],
-				labels: ['前6日','前5日','前4日','前3日','前2日','前1日','今天']
+				labels: ['-','-','-','-','-','-','今天']
 		};
 		PChart4 = new Chart(ctx4, {
 			type: 'line',
